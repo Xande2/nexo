@@ -1,0 +1,17 @@
+.worktrees/
+.superpowers/
+.tools/
+node_modules/
+.expo/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+*.db
+*.log
+DESAFIO-ORIGINAL.pdf
+__pycache__/
+*.pyc

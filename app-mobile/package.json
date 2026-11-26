@@ -1,0 +1,33 @@
+{
+  "name": "nexo-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "test": "node --experimental-strip-types --test --test-isolation=none tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "doctor": "expo-doctor",
+    "export:web": "expo export --platform web",
+    "export:native": "expo export --platform android --platform ios"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
+    "expo": "~58.0.26",
+    "react": "19.3.0",
+    "react-dom": "^19.3.0",
+    "react-native": "0.88.1",
+    "react-native-safe-area-context": "~5.11.1",
+    "react-native-web": "^0.21.4"
+  },
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^24.19.4",
+    "@types/react": "^19.3.3",
+    "expo-doctor": "^1.21.8",
+    "typescript": "~6.0.3"
+  }
+}

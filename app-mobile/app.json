@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "Nexo",
+    "slug": "nexo-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F5F7FA",
+    "ios": {"supportsTablet": true},
+    "web": {"name": "Nexo — Tarefas"}
+  }
+}
