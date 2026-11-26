@@ -113,8 +113,9 @@ final class TaskRepository
         }
     }
 
-    private function find(int $id): array
+    public function find(int $id): array
     {
+        $this->validateId($id);
         $query = $this->pdo->prepare('SELECT id, titulo, descricao, prioridade, status, criado_em
             FROM chamados WHERE id = :id');
         $query->execute(['id' => $id]);

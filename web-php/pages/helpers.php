@@ -5,6 +5,13 @@ declare(strict_types=1);
 const WEB_STATUSES = ['', 'Aberto', 'Concluido'];
 const WEB_PRIORITIES = ['', 'Baixa', 'Media', 'Alta'];
 const WEB_SEARCH_MAX = 100;
+const WEB_ERROR_TITLES = [
+    400 => 'Filtro inválido',
+    403 => 'Solicitação não validada',
+    404 => 'Página não encontrada',
+    405 => 'Método não permitido',
+    422 => 'Dados inválidos',
+];
 const WEB_PRIORITY_LABELS = ['Alta' => ['Alta', 'high'], 'Media' => ['Média', 'medium'], 'Baixa' => ['Baixa', 'low']];
 
 function webEscape(string $value): string

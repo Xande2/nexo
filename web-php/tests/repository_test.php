@@ -1,5 +1,5 @@
 <?php
-// Exercises TaskRepository::search() and counts() against a real in-memory SQLite schema.
+// Exercises repository reads against a real in-memory SQLite schema.
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/HttpException.php';
@@ -40,6 +40,26 @@ $checks = [
     'invalid priority is 422' => $priorityRejected,
     'counts' => $repository->counts() === ['total' => 3, 'Aberto' => 2, 'Concluido' => 1],
 ];
+try {
+    $found = $repository->find((int) $supplier['id']);
+    $checks['public find returns the requested task with current status'] =
+        $found['id'] === $supplier['id'] && $found['titulo'] === 'Fornecedores'
+        && $found['descricao'] === 'conferir c\\d' && $found['prioridade'] === 'Media'
+        && $found['status'] === 'Concluido' && $found['criado_em'] === $supplier['criado_em'];
+} catch (Throwable) {
+    $checks['public find returns the requested task with current status'] = false;
+}
+foreach ([0, -1, 999999] as $id) {
+    $rejected = false;
+    try {
+        $repository->find($id);
+    } catch (Nexo\HttpException $exception) {
+        $rejected = $exception->status === 404;
+    } catch (Throwable) {
+        // Inaccessible methods must fail the check rather than look like a valid 404.
+    }
+    $checks['public find rejects invalid or missing ID ' . $id . ' with 404'] = $rejected;
+}
 foreach ($checks as $name => $passed) {
     echo ($passed ? 'PASS ' : 'FAIL ') . $name . "\n";
 }

@@ -6,9 +6,9 @@ require_once __DIR__ . '/helpers.php';
 webStartSession();
 
 $routes = [
-    '/' => ['GET'],
-    '/excluir' => ['GET', 'POST'],
-    '/nova' => ['GET', 'POST'],
+    '/' => ['GET', 'HEAD'],
+    '/excluir' => ['GET', 'HEAD', 'POST'],
+    '/nova' => ['GET', 'HEAD', 'POST'],
     '/status' => ['POST'],
 ];
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -18,7 +18,8 @@ $filters = ['status' => '', 'prioridade' => '', 'q' => ''];
 
 $fail = static function (int $code, string $message) use (&$filters): void {
     http_response_code($code);
-    webRender('error', ['error' => $message, 'backUrl' => webUrl($filters)], 'Visão geral');
+    $title = WEB_ERROR_TITLES[$code] ?? 'Algo deu errado';
+    webRender('error', ['error' => $message, 'title' => $title, 'backUrl' => webUrl($filters)], $title);
 };
 
 if (!isset($routes[$path]) || !in_array($method, $routes[$path], true)) {
@@ -49,18 +50,8 @@ try {
             $repository->delete($id);
             webRedirect(webUrl($filters), 'Tarefa excluída com sucesso.');
         } else {
-            $task = null;
-            foreach ($repository->all() as $item) {
-                if ((int) $item['id'] === $id) {
-                    $task = $item;
-                    break;
-                }
-            }
-            if ($task === null) {
-                $fail(404, 'Tarefa não encontrada.');
-            } else {
-                webRender('confirm-delete', ['task' => $task, 'filters' => $filters], 'Confirmar exclusão');
-            }
+            // find() lança HttpException 404 para id inexistente, tratada no catch abaixo.
+            webRender('confirm-delete', ['task' => $repository->find($id), 'filters' => $filters], 'Confirmar exclusão');
         }
     } elseif ($path === '/nova') {
         $values = ['titulo' => '', 'descricao' => '', 'prioridade' => 'Media'];
@@ -73,7 +64,7 @@ try {
             http_response_code($code);
             webRender('task-form', ['values' => $values, 'errors' => $errors, 'formError' => $formError], 'Nova tarefa', 'new');
         };
-        if ($method === 'GET') {
+        if ($method !== 'POST') {
             $form(200, [], null);
         } elseif (!csrfValid()) {
             $form(403, [], 'Não foi possível validar a solicitação. Recarregue a página e tente novamente.');

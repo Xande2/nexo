@@ -3,10 +3,13 @@
 
 The database is modified: use a disposable database. Run: NEXO_WEB_BASE=http://127.0.0.1:8000 python3 web-php/tests/web_http.py
 """
+import email
+import html.parser
 import http.cookiejar
 import json
 import os
 import re
+import socket
 import unittest
 import urllib.error
 import urllib.parse
@@ -132,6 +135,49 @@ class WebHTTP(unittest.TestCase):
         self.assertIn('aria-invalid="true"', body)
         self.assertRegex(body, r'value="Baixa"[^>]*checked')
 
+    def post_invalid_task(self, **fields):
+        _, _, body = self.request('/nova')
+        token = re.search(r'name="csrf" value="([^"]+)"', body).group(1)
+        code, _, body = self.request('/nova', dict(fields, csrf=token))
+        self.assertEqual(code, 422)
+        form = FormFields(); form.feed(body)
+        return body, form
+
+    def assert_field_errors(self, form, focused, invalid):
+        self.assertEqual(form.keys('autofocus'), [focused])
+        self.assertEqual(form.keys('aria-invalid'), invalid)
+        for key in invalid:
+            self.assertEqual(form.fields[key]['aria-invalid'], 'true')
+            self.assertEqual(form.fields[key]['aria-describedby'], key.split(':')[0] + '-erro')
+
+    # Empty priority: other unknown values are rejected earlier (400) by the panel filter validation.
+    def test_invalid_priority_marks_and_focuses_radio_group(self):
+        body, form = self.post_invalid_task(titulo='Título "válido"', descricao='<b>x</b>', prioridade='')
+        self.assert_field_errors(form, RADIOS[0], RADIOS)
+        self.assertIn('id="prioridade-erro"', body)
+        self.assertIn('Selecione Baixa, Media ou Alta.', body)
+        self.assertEqual(form.fields['titulo']['value'], 'Título "válido"')
+        self.assertIn('&lt;b&gt;x&lt;/b&gt;</textarea>', body)
+        self.assertNotIn('<b>x</b>', body)
+
+    def test_invalid_description_with_valid_title_focuses_description(self):
+        description = '<b>' + 'x' * 5000
+        body, form = self.post_invalid_task(titulo='Título válido', descricao=description, prioridade='Alta')
+        self.assert_field_errors(form, 'descricao', ['descricao'])
+        self.assertIn('id="descricao-erro"', body)
+        self.assertIn('A descrição deve ser texto com até 5000 caracteres.', body)
+        self.assertEqual(form.fields['titulo']['value'], 'Título válido')
+        self.assertIn('&lt;b&gt;' + 'x' * 5000 + '</textarea>', body)
+        self.assertIn('checked', form.fields['prioridade:Alta'])
+
+    def test_multiple_invalid_fields_focus_first_in_form_order(self):
+        body, form = self.post_invalid_task(titulo='   ', descricao='x' * 5001, prioridade='')
+        self.assert_field_errors(form, 'titulo', ['titulo', 'descricao'] + RADIOS)
+        for field in ('titulo', 'descricao', 'prioridade'):
+            self.assertIn('id="%s-erro"' % field, body)
+        _, form = self.post_invalid_task(titulo='Título válido', descricao='x' * 5001, prioridade='')
+        self.assert_field_errors(form, 'descricao', ['descricao'] + RADIOS)
+
     def test_create_requires_csrf(self):
         code, _, _ = self.request('/nova', {'titulo': 'Sem token válido', 'prioridade': 'Media', 'csrf': 'invalid'})
         self.assertEqual(code, 403)
@@ -145,6 +191,12 @@ class WebHTTP(unittest.TestCase):
         for item in (first, second):
             code, _, _ = self.request('/status', {'id': item, 'novo_status': 'Concluido', 'csrf': token})
             self.assertEqual(code, 303)
+
+    def test_delete_confirmation_for_missing_task_is_404(self):
+        code, _, body = self.request('/excluir?id=999999&status=Aberto')
+        self.assertEqual(code, 404)
+        self.assertIn('Tarefa não encontrada.', body); self.assertIn('<title>Página não encontrada | Nexo</title>', body)
+        self.assertNotIn('Fatal error', body)
 
     def test_tampered_filters_are_controlled(self):
         for query in ('/?q[]=x', '/?prioridade=Urgente', '/?q=' + 'a' * 101, '/?status[]=Aberto'):
@@ -201,17 +253,75 @@ class WebHTTP(unittest.TestCase):
     def test_method_not_allowed_advertises_route_methods(self):
         code, headers, _ = self.request('/excluir', method='PUT')
         self.assertEqual(code, 405)
-        self.assertEqual(headers['Allow'], 'GET, POST')
+        self.assertEqual(headers['Allow'], 'GET, HEAD, POST')
         code, headers, _ = self.request('/nova', method='PUT')
         self.assertEqual(code, 405)
-        self.assertEqual(headers['Allow'], 'GET, POST')
+        self.assertEqual(headers['Allow'], 'GET, HEAD, POST')
         code, headers, _ = self.request('/', method='PUT')
         self.assertEqual(code, 405)
-        self.assertEqual(headers['Allow'], 'GET')
+        self.assertEqual(headers['Allow'], 'GET, HEAD')
+
+    def raw_head(self, path):
+        """HEAD over a raw socket: http.client never reads a HEAD body, so it would hide a leaked one."""
+        url = urllib.parse.urlsplit(BASE)
+        with socket.create_connection((url.hostname, url.port or 80), timeout=5) as sock:
+            sock.sendall(('HEAD %s HTTP/1.0\r\nHost: %s\r\n\r\n' % (path, url.netloc)).encode())
+            data = b''
+            while chunk := sock.recv(65536):
+                data += chunk
+        head, _, body = data.partition(b'\r\n\r\n')
+        lines = head.decode('iso-8859-1').split('\r\n')
+        headers = email.message_from_string('\r\n'.join(lines[1:]) + '\r\n\r\n')
+        return int(lines[0].split()[1]), headers, body
+
+    def test_head_mirrors_get_on_read_routes(self):
+        item = self.create('Alvo do HEAD')
+        cases = [('/', 200), ('/?status=Aberto&prioridade=Media&q=alvo', 200), ('/nova', 200),
+                 ('/excluir?id=%s' % item, 200), ('/excluir?id=%s&status=Aberto' % item, 200),
+                 ('/excluir?id=999999', 404), ('/excluir?id=0', 404), ('/excluir?id=abc', 404), ('/excluir', 404),
+                 ('/?status=invalido', 400), ('/?prioridade=Urgente', 400), ('/?q[]=x', 400),
+                 ('/?q=%FF', 400), ('/?q=' + 'a' * 101, 400), ('/nova?status=x', 400),
+                 ('/excluir?id=%s&prioridade=Urgente' % item, 400)]
+        for path, expected in cases:
+            with self.subTest(path=path):
+                get_code, get_headers, get_body = self.request(path)
+                head_code, head_headers, head_body = self.raw_head(path)
+                self.assertEqual(get_code, expected)
+                self.assertEqual(head_code, get_code)
+                self.assertEqual(head_body, b'')
+                self.assertTrue(get_body)
+                for name in ('Content-Type', 'Allow', 'Location', 'Cache-Control', 'X-Content-Type-Options'):
+                    self.assertEqual(head_headers[name], get_headers[name], name)
+        self.assertIn('Alvo do HEAD', self.request('/?status=Aberto')[2])
+
+    def test_head_keeps_write_and_api_method_rules(self):
+        for path, allow in (('/status', 'POST'), ('/api/chamados', 'GET,POST,OPTIONS'), ('/api/chamados/1', 'PATCH,DELETE,OPTIONS')):
+            with self.subTest(path=path):
+                code, headers, body = self.raw_head(path)
+                self.assertEqual(code, 405)
+                self.assertEqual(headers['Allow'], allow)
+                self.assertEqual(body, b'')
 
     def test_invalid_status_is_controlled(self):
         code, _, body = self.request('/?status=invalido')
         self.assertEqual(code, 400); self.assertNotIn('Fatal error', body)
+
+RADIOS = ['prioridade:Baixa', 'prioridade:Media', 'prioridade:Alta']
+
+class FormFields(html.parser.HTMLParser):
+    """Collects input/textarea attributes, keyed by name (radios as name:value)."""
+    def __init__(self):
+        super().__init__()
+        self.fields = {}
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag in ('input', 'textarea') and attrs.get('type') != 'hidden':
+            key = attrs['name'] + (':' + attrs['value'] if attrs.get('type') == 'radio' else '')
+            self.fields[key] = attrs
+
+    def keys(self, attribute):
+        return [key for key, attrs in self.fields.items() if attribute in attrs]
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):

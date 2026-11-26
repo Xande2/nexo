@@ -15,3 +15,27 @@ coverage/
 DESAFIO-ORIGINAL.pdf
 __pycache__/
 *.pyc
+
+# Arquivos de configuração local na raiz do projeto
+/.bashrc
+/.bash_profile
+/.profile
+/.zshrc
+/.zprofile
+/.gitconfig
+/.gitmodules
+/.mcp.json
+/.ripgreprc
+/.idea
+/.vscode
+/.claude/
+
+# Bancos auxiliares e builds nativos
+*.sqlite3
+*.db3
+*.db-wal
+*.db-shm
+*.db-journal
+*.apk
+*.aab
+*.ipa
